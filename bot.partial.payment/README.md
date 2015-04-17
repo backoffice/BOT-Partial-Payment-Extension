@@ -19,9 +19,6 @@ This extension provides an ability to process multiple partial payments for even
 	  - Example - $partialPaymentInfo = array ( 27 => array ( 'cid'                 => 44,
 															  'contribution_id'     => 25,
 															  'payLater'            => 0,
-															  'partial_payment_pay' => 11.50
-																
-														)
-			 									);
+															  'partial_payment_pay' => 11.50 ));
   + Returns: Partial Payment Information array with an additional flag for 'Success' for each payment.
 
