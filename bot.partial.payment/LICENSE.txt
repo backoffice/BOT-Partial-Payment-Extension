@@ -1,5 +1,5 @@
 Package: bot.partial.payment
-Copyright (C) 2015, FIXME <FIXME>
+Copyright (C) 2015, BackOffice Thinking <info@backofficethinking.com>
 Licensed under the GNU Affero Public License 3.0 (below).
 
 -------------------------------------------------------------------------------
