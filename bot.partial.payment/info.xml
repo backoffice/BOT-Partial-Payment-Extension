@@ -6,7 +6,7 @@
   <description>This extension provides a framework which can be used to process multiple partial payments for event registrations in CiviCRM</description>
   <urls>
 	<url desc="Main Page">https://github.com/backoffice/BOT-Partial-Payment-Extension</url>
-  <urls>
+  </urls>
   <license>AGPL-3.0</license>
   <maintainer>
     <author>BackOffice Thinking</author>
