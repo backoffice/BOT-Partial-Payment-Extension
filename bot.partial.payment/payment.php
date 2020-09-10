@@ -140,8 +140,16 @@ function payment_civicrm_process_partial_payments( $paymentParams, $participantI
 
 		try {
 
-			//Generating random transaction ID of length 12 characters
-			$paymentParams['trxn_id'] = mt_rand(100000000000, 999999999999);
+			//Check if same trxn_id (without appending indices) already exists or not
+			$check_trxn_exists = civicrm_api3('Contribution', 'get', [
+			  'trxn_id' => ['LIKE' => '%'.$paymentParams['trxn_id'].'%'],
+			]);
+
+			if($check_trxn_exists['count']){
+
+				$paymentParams['trxn_id'] = $paymentParams['trxn_id'].'-'.$check_trxn_exists['count'];
+			}
+
 			//CRM_Core_Error::debug_var('new_paymentParams', $paymentParams);
 			$trxnRecord = civicrm_api3('Payment', 'create', $paymentParams);
 		}
