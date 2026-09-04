@@ -12,17 +12,6 @@ function payment_civicrm_config(&$config) {
 }
 
 /**
- * Implementation of hook_civicrm_xmlMenu
- *
- * @param $files array(string)
- *
- * @link http://wiki.civicrm.org/confluence/display/CRMDOC/hook_civicrm_xmlMenu
- */
-function payment_civicrm_xmlMenu(&$files) {
-  _payment_civix_civicrm_xmlMenu($files);
-}
-
-/**
  * Implementation of hook_civicrm_install
  *
  * @link http://wiki.civicrm.org/confluence/display/CRMDOC/hook_civicrm_install
@@ -73,92 +62,76 @@ function payment_civicrm_upgrade($op, CRM_Queue_Queue $queue = NULL) {
   return _payment_civix_civicrm_upgrade($op, $queue);
 }
 
-/**
- * Implementation of hook_civicrm_managed
- *
- * Generate a list of entities to create/deactivate/delete when this module
- * is installed, disabled, uninstalled.
- *
- * @link http://wiki.civicrm.org/confluence/display/CRMDOC/hook_civicrm_managed
- */
-function payment_civicrm_managed(&$entities) {
-  return _payment_civix_civicrm_managed($entities);
-}
-
-/**
- * Implementation of hook_civicrm_caseTypes
- *
- * Generate a list of case-types
- *
- * Note: This hook only runs in CiviCRM 4.4+.
- *
- * @link http://wiki.civicrm.org/confluence/display/CRMDOC/hook_civicrm_caseTypes
- */
-function payment_civicrm_caseTypes(&$caseTypes) {
-  _payment_civix_civicrm_caseTypes($caseTypes);
-}
-
-/**
- * Implementation of hook_civicrm_alterSettingsFolders
- *
- * @link http://wiki.civicrm.org/confluence/display/CRMDOC/hook_civicrm_alterSettingsFolders
- */
-function payment_civicrm_alterSettingsFolders(&$metaDataFolders = NULL) {
-  _payment_civix_civicrm_alterSettingsFolders($metaDataFolders);
-}
-
-/**
-  * Function to process partial payments
-  * @param $paymentParams - Payment Processor parameters
-  * @param $participantInfo - participantID as key and contributionID, ContactID, PayLater, Partial Payment Amount
-  * @return $participantInfo array with 'Success' flag
-**/
-
-function process_partial_payments( $paymentParams, $participantInfo ) {
-	//Iterate through participant info
-	foreach ( $participantInfo as $pId => $pInfo ) {
-		if ( !$pInfo['contribution_id'] || !$pId ) {
-			$participantInfo[$pId]['success'] = 0;
-			continue;
+function payment_civicrm_process_partial_payments( $paymentParams, $participantInfo ) {
+     watchdog('partialPaymentExtension',"values passed in via paymentParams is <pre>" . print_r($paymentParams,TRUE) . "</pre> and participantInfo is <pre>" . print_r($participantInfo,TRUE) . "</pre>"); 
+     foreach ( $participantInfo as $pId => $pInfo ) {
+	if ( $pInfo['partial_payment_pay'] ) {
+		if ( $pInfo['payLater'] ) {			
+			$contributionStatuses = CRM_Contribute_PseudoConstant::contributionStatus(NULL, 'name');	
+			//Update contribution status from pending to partially paid
+			$updateContribution = new CRM_Contribute_DAO_Contribution();
+			$contributionParams = array ( 'id'                     => $pInfo['contribution_id'],
+										  'contact_id'             => $pInfo['cid'],
+							              'contribution_status_id' => array_search('Partially paid', $contributionStatuses)
+							 );
+			$updateContribution->copyValues($contributionParams);
+			$t = $updateContribution->save();
+			//Update participant Status from 'Pending from Pay Later' to 'Partially Paid'
+			$pendingPayLater   = CRM_Core_DAO::getFieldValue( 'CRM_Event_BAO_ParticipantStatusType', 'Pending from pay later', 'id', 'name' );
+			$partiallyPaid     = CRM_Core_DAO::getFieldValue( 'CRM_Event_BAO_ParticipantStatusType', 'Partially paid', 'id', 'name' );			
+			$participantStatus = CRM_Core_DAO::getFieldValue( 'CRM_Event_BAO_Participant', $pId, 'status_id', 'id' );
+			
+			if ( $participantStatus == $pendingPayLater ) {
+				CRM_Event_BAO_Participant::updateParticipantStatus($pId, $pendingPayLater, $partiallyPaid, TRUE );
+			}			
 		}
 		
-		if ( $pInfo['partial_payment_pay'] ) {
-			//Update contribution and participant status for pending from pay later registrations
-			if ( $pInfo['payLater'] ) {
-				/** Using DAO instead of API
-				  * API does not allow changing the status from 'Pending from pay later' to 'Partially Paid'
-				**/
-				$contributionStatuses  = CRM_Contribute_PseudoConstant::contributionStatus(NULL, 'name');
-				$updateContribution    = new CRM_Contribute_DAO_Contribution();
-				$contributionParams    = array ( 'id'                     => $pInfo['contribution_id'],
-												 'contact_id'             => $pInfo['cid'],
-												 'contribution_status_id' => array_search('Partially paid', $contributionStatuses),
-										);
-								 
-				$updateContribution->copyValues($contributionParams);
-				$updateContribution->save();
-				
-				//Update participant Status from 'Pending from Pay Later' to 'Partially Paid'
-				$pendingPayLater   = CRM_Core_DAO::getFieldValue( 'CRM_Event_BAO_ParticipantStatusType', 'Pending from pay later', 'id', 'name' );
-				$partiallyPaid     = CRM_Core_DAO::getFieldValue( 'CRM_Event_BAO_ParticipantStatusType', 'Partially paid', 'id', 'name' );			
-				$participantStatus = CRM_Core_DAO::getFieldValue( 'CRM_Event_BAO_Participant', $pId, 'status_id', 'id' );
-				
-				if ( $participantStatus == $pendingPayLater ) {
-					CRM_Event_BAO_Participant::updateParticipantStatus( $pId, $pendingPayLater, $partiallyPaid, TRUE );
-				}
-				
+		//Add additional financial transactions for partial payments
+		$paymentParams['total_amount'] = $pInfo['partial_payment_pay'];
+		
+               //recordAdditionalPayment method no longer supported as of CiviCRM 5.18.x
+                //$trxnRecord = CRM_Contribute_BAO_Contribution::recordAdditionalPayment( $pInfo['contribution_id'], $paymentParams, 'owed', $pId );
+                $paymentParams['participant_id']=$pId;
+                $paymentParams['contribution_id']=$pInfo['contribution_id'];
+
+		try {
+
+			//Check if same trxn_id (without appending indices) already exists or not
+			$check_trxn_exists = civicrm_api3('Contribution', 'get', [
+			  'trxn_id' => ['LIKE' => '%'.$paymentParams['trxn_id'].'%'],
+			]);
+
+			if($check_trxn_exists['count']){
+
+				$paymentParams['trxn_id'] = $paymentParams['trxn_id'].'-'.$check_trxn_exists['count'];
 			}
-			//Making sure that payment params has the correct amount for partial payment
-			$paymentParams['total_amount'] = $pInfo['partial_payment_pay'];
-			
-			//Add additional financial transactions for each partial payment
-			$trxnRecord = CRM_Contribute_BAO_Contribution::recordAdditionalPayment( $pInfo['contribution_id'], $paymentParams, 'owed', $pId );
-			
-			if ( $trxnRecord-> id ) {
-				$participantInfo[$pId]['success'] = 1;
-			}			
-			
+
+			//CRM_Core_Error::debug_var('new_paymentParams', $paymentParams);
+			$trxnRecord = civicrm_api3('Payment', 'create', $paymentParams);
 		}
+		   catch (CiviCRM_API3_Exception $e) {
+		      $error = $e->getMessage();
+		      CRM_Core_Error::debug_var("Trxn Record", $trxnRecord);
+		      CRM_Core_Error::debug_var("API Exception error",$error);
+   		}
 	}
-	return $participantInfo;
+  }
+}
+
+/**
+ * Implements hook_civicrm_postInstall().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_postInstall
+ */
+function payment_civicrm_postInstall() {
+  _payment_civix_civicrm_postInstall();
+}
+
+/**
+ * Implements hook_civicrm_entityTypes().
+ *
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_entityTypes
+ */
+function payment_civicrm_entityTypes(&$entityTypes) {
+  _payment_civix_civicrm_entityTypes($entityTypes);
 }
